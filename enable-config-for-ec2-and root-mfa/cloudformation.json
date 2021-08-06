@@ -1,0 +1,113 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Enables and AWS Config rule for check whether 1. Whether all EIP addresses allocated to a VPC are attached to EC2 instances or in-use ENIs 2. Whether EBS volumes that are in an attached state are encrypted. Optionally, we can specify the ID of a KMS key to use to encrypt the volume 
+3. Whether the root user of your AWS account requires multi-factor authentication for console sign-in",
+    "Parameters": {
+        "Frequency": {
+            "Type": "String",
+            "Default": "24hours",
+            "Description": "Maximum rule execution frequency.",
+            "AllowedValues": [
+                "1hour",
+                "3hours",
+                "6hours",
+                "12hours",
+                "24hours"
+            ]
+        },
+        "KMSId": {
+            "Type": "String",
+            "Description": "[Optional] Id or ARN of the KMS key that is used to encrypt the volume.",
+            "Default": ""
+        }
+    },
+    "Conditions": {
+        "HasKMSKeyId": {
+            "Fn::Not": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "KMSId"
+                        },
+                        ""
+                    ]
+                }
+            ]
+        }
+    },
+    "Mappings": {
+        "Settings": {
+            "FrequencyMap": {
+                "1hour": "One_Hour",
+                "3hours": "Three_Hours",
+                "6hours": "Six_Hours",
+                "12hours": "Twelve_Hours",
+                "24hours": "TwentyFour_Hours"
+            }
+        }
+    },
+    "Resources": {
+        "CheckForRootMFA": {
+            "Type": "AWS::Config::ConfigRule",
+            "Properties": {
+                "Description": "Checks whether the root user of your AWS account requires multi-factor authentication for console sign-in.",
+                "MaximumExecutionFrequency": {
+                    "Fn::FindInMap": [
+                        "Settings",
+                        "FrequencyMap",
+                        {
+                            "Ref": "Frequency"
+                        }
+                    ]
+                },
+                "Source": {
+                    "Owner": "AWS",
+                    "SourceIdentifier": "ROOT_ACCOUNT_MFA_ENABLED"
+                }
+            }
+        },
+        "CheckForEIPAttached": {
+            "Type": "AWS::Config::ConfigRule",
+            "Properties": {
+                "Description": "Checks whether all EIP addresses allocated to a VPC are attached to EC2 instances or in-use ENIs.",
+                "Source": {
+                    "Owner": "AWS",
+                    "SourceIdentifier": "EIP_ATTACHED"
+                },
+                "Scope": {
+                    "ComplianceResourceTypes": [
+                        "AWS::EC2::EIP"
+                    ]
+                }
+            }
+        },
+        "CheckForEncryptedVolumes": {
+            "Type": "AWS::Config::ConfigRule",
+            "Properties": {
+                "Description": "Checks whether EBS volumes that are in an attached state are encrypted.",
+                "Source": {
+                    "Owner": "AWS",
+                    "SourceIdentifier": "ENCRYPTED_VOLUMES"
+                },
+                "Scope": {
+                    "ComplianceResourceTypes": [
+                        "AWS::EC2::Volume"
+                    ]
+                },
+                "InputParameters": {
+                    "kmsId": {
+                        "Fn::If": [
+                            "HasKMSKeyId",
+                            {
+                                "Ref": "KMSId"
+                            },
+                            {
+                                "Ref": "AWS::NoValue"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
