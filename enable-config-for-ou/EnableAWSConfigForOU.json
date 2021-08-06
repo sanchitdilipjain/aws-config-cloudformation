@@ -1,0 +1,497 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Enable AWS Config with central logging and notification",
+    "Metadata": {
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+                {
+                    "Label": {
+                        "default": "Recorder Configuration"
+                    },
+                    "Parameters": [
+                        "AllSupported",
+                        "IncludeGlobalResourceTypes",
+                        "ResourceTypes"
+                    ]
+                },
+                {
+                    "Label": {
+                        "default": "Delivery Channel Configuration"
+                    },
+                    "Parameters": [
+                        "DeliveryChannelName",
+                        "S3BucketName",
+                        "S3KeyPrefix",
+                        "Frequency"
+                    ]
+                },
+                {
+                    "Label": {
+                        "default": "Delivery Notifications"
+                    },
+                    "Parameters": [
+                        "SNS",
+                        "TopicArn",
+                        "NotificationEmail"
+                    ]
+                }
+            ],
+            "ParameterLabels": {
+                "AllSupported": {
+                    "default": "Support all resource types"
+                },
+                "IncludeGlobalResourceTypes": {
+                    "default": "Include global resource types"
+                },
+                "ResourceTypes": {
+                    "default": "List of resource types if not all supported"
+                },
+                "DeliveryChannelName": {
+                    "default": "Configuration delivery channel name"
+                },
+                "S3BucketName": {
+                    "default": "Central S3 bucket"
+                },
+                "S3KeyPrefix": {
+                    "default": "Prefix for the specified Amazon S3 bucket"
+                },
+                "Frequency": {
+                    "default": "Snapshot delivery frequency"
+                },
+                "SNS": {
+                    "default": "SNS notifications"
+                },
+                "TopicArn": {
+                    "default": "SNS topic name"
+                },
+                "NotificationEmail": {
+                    "default": "Notification Email (optional)"
+                }
+            }
+        }
+    },
+    "Parameters": {
+        "AllSupported": {
+            "Type": "String",
+            "Default": true,
+            "Description": "Indicates whether to record all supported resource types.",
+            "AllowedValues": [
+                true,
+                false
+            ]
+        },
+        "IncludeGlobalResourceTypes": {
+            "Type": "String",
+            "Default": true,
+            "Description": "Indicates whether AWS Config records all supported global resource types.",
+            "AllowedValues": [
+                true,
+                false
+            ]
+        },
+        "ResourceTypes": {
+            "Type": "List<String>",
+            "Description": "A list of valid AWS resource types to include in this recording group, such as AWS::EC2::Instance or AWS::CloudTrail::Trail.",
+            "Default": "<All>"
+        },
+        "DeliveryChannelName": {
+            "Type": "String",
+            "Default": "<Generated>",
+            "Description": "The name of the delivery channel."
+        },
+        "S3BucketName": {
+            "Type": "String",
+            "Description": "Central S3 bucket where AWS Config delivers configuration snapshots and history.",
+            "Default": "<New Bucket>",
+            "AllowedPattern": ".+"
+        },
+        "S3KeyPrefix": {
+            "Type": "String",
+            "Description": "The prefix for the Amazon S3 bucket (optional).",
+            "Default": "<No Prefix>"
+        },
+        "Frequency": {
+            "Type": "String",
+            "Default": "24hours",
+            "Description": "The frequency with which AWS Config delivers configuration snapshots.",
+            "AllowedValues": [
+                "Disabled",
+                "1hour",
+                "3hours",
+                "6hours",
+                "12hours",
+                "24hours"
+            ]
+        },
+        "SNS": {
+            "Type": "String",
+            "Default": true,
+            "Description": "Describes wether AWS Config sends SNS notifications.",
+            "AllowedValues": [
+                true,
+                false
+            ]
+        },
+        "TopicArn": {
+            "Type": "String",
+            "Default": "<New Topic>",
+            "Description": "The Amazon Resource Name (ARN) of the Amazon Simple Notification Service (Amazon SNS) topic that AWS Config delivers notifications to. Topic ARN must belong to the same Region where you will be deploying the Stack."
+        },
+        "NotificationEmail": {
+            "Type": "String",
+            "Default": "<None>",
+            "Description": "Email address for AWS Config notifications (for new topics)."
+        }
+    },
+    "Conditions": {
+        "IsAllSupported": {
+            "Fn::Equals": [
+                {
+                    "Ref": "AllSupported"
+                },
+                true
+            ]
+        },
+        "IsGeneratedDeliveryChannelName": {
+            "Fn::Equals": [
+                {
+                    "Ref": "DeliveryChannelName"
+                },
+                "<Generated>"
+            ]
+        },
+        "CreateBucket": {
+            "Fn::Equals": [
+                {
+                    "Ref": "S3BucketName"
+                },
+                "<New Bucket>"
+            ]
+        },
+        "UsePrefix": {
+            "Fn::Not": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "S3KeyPrefix"
+                        },
+                        "<No Prefix>"
+                    ]
+                }
+            ]
+        },
+        "DisableSnapshots": {
+            "Fn::Equals": [
+                {
+                    "Ref": "Frequency"
+                },
+                "Disabled"
+            ]
+        },
+        "UseSNS": {
+            "Fn::Equals": [
+                {
+                    "Ref": "SNS"
+                },
+                true
+            ]
+        },
+        "CreateTopic": {
+            "Fn::And": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "TopicArn"
+                        },
+                        "<New Topic>"
+                    ]
+                },
+                {
+                    "Condition": "UseSNS"
+                }
+            ]
+        },
+        "CreateSubscription": {
+            "Fn::And": [
+                {
+                    "Condition": "CreateTopic"
+                },
+                {
+                    "Fn::Not": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "NotificationEmail"
+                                },
+                                "<None>"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "Mappings": {
+        "Settings": {
+            "FrequencyMap": {
+                "Disabled": "TwentyFour_Hours",
+                "1hour": "One_Hour",
+                "3hours": "Three_Hours",
+                "6hours": "Six_Hours",
+                "12hours": "Twelve_Hours",
+                "24hours": "TwentyFour_Hours"
+            }
+        }
+    },
+    "Resources": {
+        "ConfigBucket": {
+            "Condition": "CreateBucket",
+            "DeletionPolicy": "Retain",
+            "Type": "AWS::S3::Bucket",
+            "Properties": {
+                "BucketEncryption": {
+                    "ServerSideEncryptionConfiguration": [
+                        {
+                            "ServerSideEncryptionByDefault": {
+                                "SSEAlgorithm": "AES256"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "ConfigBucketPolicy": {
+            "Condition": "CreateBucket",
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {
+                "Bucket": {
+                    "Ref": "ConfigBucket"
+                },
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "AWSConfigBucketPermissionsCheck",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "config.amazonaws.com"
+                                ]
+                            },
+                            "Action": "s3:GetBucketAcl",
+                            "Resource": [
+                                {
+                                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${ConfigBucket}"
+                                }
+                            ]
+                        },
+                        {
+                            "Sid": "AWSConfigBucketExistenceCheck",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "config.amazonaws.com"
+                                ]
+                            },
+                            "Action": "s3:ListBucket",
+                            "Resource": [
+                                {
+                                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${ConfigBucket}"
+                                }
+                            ]
+                        },
+                        {
+                            "Sid": "AWSConfigBucketDelivery",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "config.amazonaws.com"
+                                ]
+                            },
+                            "Action": "s3:PutObject",
+                            "Resource": {
+                                "Fn::If": [
+                                    "UsePrefix",
+                                    {
+                                        "Fn::Sub": "arn:${AWS::Partition}:s3:::${ConfigBucket}/${S3KeyPrefix}/AWSLogs/${AWS::AccountId}/*"
+                                    },
+                                    {
+                                        "Fn::Sub": "arn:${AWS::Partition}:s3:::${ConfigBucket}/AWSLogs/${AWS::AccountId}/*"
+                                    }
+                                ]
+                            },
+                            "Condition": {
+                                "StringLike": {
+                                    "s3:x-amz-acl": "bucket-owner-full-control"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "ConfigTopic": {
+            "Condition": "CreateTopic",
+            "Type": "AWS::SNS::Topic",
+            "Properties": {
+                "TopicName": {
+                    "Fn::Sub": "config-topic-${AWS::AccountId}"
+                },
+                "DisplayName": "AWS Config Notification Topic",
+                "KmsMasterKeyId": "alias/aws/sns"
+            }
+        },
+        "ConfigTopicPolicy": {
+            "Condition": "CreateTopic",
+            "Type": "AWS::SNS::TopicPolicy",
+            "Properties": {
+                "Topics": [
+                    {
+                        "Ref": "ConfigTopic"
+                    }
+                ],
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Sid": "AWSConfigSNSPolicy",
+                            "Action": [
+                                "sns:Publish"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": {
+                                "Ref": "ConfigTopic"
+                            },
+                            "Principal": {
+                                "Service": [
+                                    "config.amazonaws.com"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "EmailNotification": {
+            "Condition": "CreateSubscription",
+            "Type": "AWS::SNS::Subscription",
+            "Properties": {
+                "Endpoint": {
+                    "Ref": "NotificationEmail"
+                },
+                "Protocol": "email",
+                "TopicArn": {
+                    "Ref": "ConfigTopic"
+                }
+            }
+        },
+        "ConfigRole": {
+            "Type": "AWS::IAM::ServiceLinkedRole",
+            "Properties": {
+                "AWSServiceName": "config.amazonaws.com"
+            }
+        },
+        "ConfigRecorder": {
+            "Type": "AWS::Config::ConfigurationRecorder",
+            "Properties": {
+                "RecordingGroup": {
+                    "AllSupported": {
+                        "Ref": "AllSupported"
+                    },
+                    "IncludeGlobalResourceTypes": {
+                        "Ref": "IncludeGlobalResourceTypes"
+                    },
+                    "ResourceTypes": {
+                        "Fn::If": [
+                            "IsAllSupported",
+                            {
+                                "Ref": "AWS::NoValue"
+                            },
+                            {
+                                "Ref": "ResourceTypes"
+                            }
+                        ]
+                    }
+                },
+                "RoleARN": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig"
+                }
+            }
+        },
+        "ConfigDeliveryChannel": {
+            "Type": "AWS::Config::DeliveryChannel",
+            "Properties": {
+                "Name": {
+                    "Fn::If": [
+                        "IsGeneratedDeliveryChannelName",
+                        {
+                            "Ref": "AWS::NoValue"
+                        },
+                        {
+                            "Ref": "DeliveryChannelName"
+                        }
+                    ]
+                },
+                "ConfigSnapshotDeliveryProperties": {
+                    "Fn::If": [
+                        "DisableSnapshots",
+                        {
+                            "Ref": "AWS::NoValue"
+                        },
+                        {
+                            "DeliveryFrequency": {
+                                "Fn::FindInMap": [
+                                    "Settings",
+                                    "FrequencyMap",
+                                    {
+                                        "Ref": "Frequency"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "S3BucketName": {
+                    "Fn::If": [
+                        "CreateBucket",
+                        {
+                            "Ref": "ConfigBucket"
+                        },
+                        {
+                            "Ref": "S3BucketName"
+                        }
+                    ]
+                },
+                "S3KeyPrefix": {
+                    "Fn::If": [
+                        "UsePrefix",
+                        {
+                            "Ref": "S3KeyPrefix"
+                        },
+                        {
+                            "Ref": "AWS::NoValue"
+                        }
+                    ]
+                },
+                "SnsTopicARN": {
+                    "Fn::If": [
+                        "UseSNS",
+                        {
+                            "Fn::If": [
+                                "CreateTopic",
+                                {
+                                    "Ref": "ConfigTopic"
+                                },
+                                {
+                                    "Ref": "TopicArn"
+                                }
+                            ]
+                        },
+                        {
+                            "Ref": "AWS::NoValue"
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
